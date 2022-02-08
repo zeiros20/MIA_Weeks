@@ -1,0 +1,90 @@
+from casadi import *
+import math
+
+
+
+# weights
+Q_X = 9
+Q_Y = 7
+Q_theta = 1
+R_w1 = 0.05
+R_w2 = 0.05
+R_w3 = 0.05
+R_w4 = 0.05
+
+# MPC CUs
+h = 0.2
+N = 20
+
+# Robot char
+rob_diam = 0.3
+Rw = 0.1
+L = 0.2
+l = 0.1
+
+# input constrains
+omega_max = math.pi
+omega_min = -omega_max
+
+x = SX.sym('x')
+y = SX.sym('y')
+theta = SX.sym('theta')
+states = [x, y, theta]
+n_states = len(states)
+
+omega_w1 = SX.sym('omega_w1')
+omega_w2 = SX.sym('omega_w2')
+omega_w3 = SX.sym('omega_w3')
+omega_w4 = SX.sym('omega_w4')
+controls = [omega_w1, omega_w2, omega_w3, omega_w4]
+n_controls = len(controls)
+
+# discretization model
+rot_3d_z = [[cos(theta), -sin(theta), 0], [sin(theta), cos(theta), 0], [0, 0, 1]]
+j0_plus = (Rw / 4)[[1, 1, 1, 1], [-1, 1, 1, -1], [-1 / (L + l), 1 / (L + l), -1 / (L + l), 1 / (L + l)]]
+rhs = rot_3d_z * j0_plus * controls
+
+f = Function('f', [[states, controls], [rhs]])
+X = SX.sym = ('X', n_states, (N + 1))
+U = SX.sym = ('U', n_controls, N)
+P = SX.sym = ('P', n_states + n_states)
+
+obj = 0
+g = []
+
+Q = []
+R = []
+for r in range(0, n_states):
+    Q.append(0 for c1 in range(0, n_states))
+    R.append(0 for c2 in range(0, n_states))
+Q[0][0] = Q_X
+Q[1][1] = Q_Y
+Q[2][2] = Q_theta
+
+st = []
+con = []
+for rows in X:
+    st.append(rows[0])
+init_states = []
+for i in range(0, n_states - 1):
+    init_states.append(P[i])
+init_constrain = []
+for i in range(0, n_states - 1):
+    init_constrain.append(st[i] - init_states[i])
+g = [[g], [init_constrain]]
+for k in range(1, N):
+    for rows in X:
+        st.append(X[rows][k])
+    for rows in U:
+        con.append(U[rows][k])
+    ref_para = []
+    for comp in P:
+        ref_para.append(P[comp])
+    cost_state = []
+    for comp in st:
+        cost_state.append(st[comp] - ref_para[comp])
+    k1 = f(st, con)
+    k2 = f(st + h / 2 * k1, con)
+    k3 = f(st + h / 2 * k2, con)
+    k4 = f(st + h * k3, con)
+    st_next_RK4 = st + h / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
